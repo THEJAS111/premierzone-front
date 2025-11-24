@@ -62,8 +62,10 @@ export default function Homepage() {
     const [teams, setTeams] = useState([]);
     const [selectedTeam, setSelectedTeam] = useState(null);
     const [teamPlayers, setTeamPlayers] = useState([]);
+    const [filteredPlayers, setFilteredPlayers] = useState([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [searchQuery, setSearchQuery] = useState("");
 
     // Get team symbol with fallback
     const getTeamSymbol = (teamName) => {
@@ -94,10 +96,13 @@ export default function Homepage() {
             const fetchPlayers = async () => {
                 setIsLoading(true);
                 setTeamPlayers([]);
+                setFilteredPlayers([]);
                 setError(null);
+                setSearchQuery(""); // Reset search when team changes
                 try {
                     const response = await axios.get(`${API_BASE_URL}?team=${selectedTeam}`);
                     setTeamPlayers(response.data);
+                    setFilteredPlayers(response.data);
                 } catch (err) {
                     console.error(`Error fetching players for ${selectedTeam}:`, err);
                     setError(`Could not fetch players for ${selectedTeam}. Data might be incomplete.`);
@@ -108,6 +113,21 @@ export default function Homepage() {
             fetchPlayers();
         }
     }, [selectedTeam]);
+
+    // --- Search Functionality ---
+    useEffect(() => {
+        if (searchQuery.trim() === "") {
+            setFilteredPlayers(teamPlayers);
+        } else {
+            const query = searchQuery.toLowerCase().trim();
+            const filtered = teamPlayers.filter(player => 
+                player.name?.toLowerCase().includes(query) ||
+                player.pos?.toLowerCase().includes(query) ||
+                player.nation?.toLowerCase().includes(query)
+            );
+            setFilteredPlayers(filtered);
+        }
+    }, [searchQuery, teamPlayers]);
 
     // --- Event Handlers ---
     const handleTeamClick = (teamName) => {
@@ -121,12 +141,20 @@ export default function Homepage() {
         });
     };
 
+    const handleSearchChange = (e) => {
+        setSearchQuery(e.target.value);
+    };
+
+    const clearSearch = () => {
+        setSearchQuery("");
+    };
+
     // --- Calculations ---
-    const totalPlayers = teamPlayers.length;
+    const totalPlayers = filteredPlayers.length;
     const teamStats = totalPlayers > 0 ? {
-        averageAge: (teamPlayers.reduce((sum, p) => sum + (p.age || 0), 0) / totalPlayers).toFixed(1),
-        totalGoals: teamPlayers.reduce((sum, p) => sum + (p.gls || 0), 0),
-        positionCounts: teamPlayers.reduce((acc, p) => {
+        averageAge: (filteredPlayers.reduce((sum, p) => sum + (p.age || 0), 0) / totalPlayers).toFixed(1),
+        totalGoals: filteredPlayers.reduce((sum, p) => sum + (p.gls || 0), 0),
+        positionCounts: filteredPlayers.reduce((acc, p) => {
             const pos = p.pos || 'Unknown';
             acc[pos] = (acc[pos] || 0) + 1;
             return acc;
@@ -175,11 +203,15 @@ export default function Homepage() {
                     selectedTeam={selectedTeam}
                     isLoading={isLoading}
                     error={error}
-                    teamPlayers={teamPlayers}
+                    teamPlayers={filteredPlayers}
                     teamStats={teamStats}
                     totalPlayers={totalPlayers}
                     onPlayerClick={handlePlayerClick}
                     getTeamSymbol={getTeamSymbol}
+                    searchQuery={searchQuery}
+                    onSearchChange={handleSearchChange}
+                    onClearSearch={clearSearch}
+                    originalPlayerCount={teamPlayers.length}
                 />
             </div>
         </div>
@@ -232,7 +264,11 @@ const TeamDetailsSection = ({
     teamStats, 
     totalPlayers, 
     onPlayerClick,
-    getTeamSymbol 
+    getTeamSymbol,
+    searchQuery,
+    onSearchChange,
+    onClearSearch,
+    originalPlayerCount
 }) => (
     <div className="bg-gray-800/80 p-6 rounded-xl shadow-2xl border border-gray-700">
         {!selectedTeam ? (
@@ -250,6 +286,14 @@ const TeamDetailsSection = ({
                     <Alert message={error} type="error" />
                 ) : (
                     <>
+                        <SearchBar 
+                            searchQuery={searchQuery}
+                            onSearchChange={onSearchChange}
+                            onClearSearch={onClearSearch}
+                            resultCount={totalPlayers}
+                            totalCount={originalPlayerCount}
+                        />
+                        
                         <TeamStatsCards 
                             teamStats={teamStats}
                             totalPlayers={totalPlayers}
@@ -258,10 +302,47 @@ const TeamDetailsSection = ({
                         <PlayerRosterTable 
                             teamPlayers={teamPlayers}
                             onPlayerClick={onPlayerClick}
+                            searchQuery={searchQuery}
                         />
                     </>
                 )}
             </>
+        )}
+    </div>
+);
+
+// --- Search Bar Component ---
+const SearchBar = ({ searchQuery, onSearchChange, onClearSearch, resultCount, totalCount }) => (
+    <div className="mb-6">
+        <div className="relative max-w-md">
+            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <svg className="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+            </div>
+            <input
+                type="text"
+                value={searchQuery}
+                onChange={onSearchChange}
+                placeholder="Search players by name, position, or nationality..."
+                className="w-full pl-10 pr-12 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition duration-200"
+            />
+            {searchQuery && (
+                <button
+                    onClick={onClearSearch}
+                    className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-white transition duration-200"
+                >
+                    <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            )}
+        </div>
+        {searchQuery && (
+            <p className="text-sm text-gray-400 mt-2">
+                Showing {resultCount} of {totalCount} players
+                {resultCount === 0 && " - No matches found"}
+            </p>
         )}
     </div>
 );
@@ -317,11 +398,21 @@ const TeamStatsCards = ({ teamStats, totalPlayers }) => (
 );
 
 // --- Player Roster Table Component ---
-const PlayerRosterTable = ({ teamPlayers, onPlayerClick }) => {
+const PlayerRosterTable = ({ teamPlayers, onPlayerClick, searchQuery }) => {
     const totalPlayers = teamPlayers.length;
 
     if (totalPlayers === 0) {
-        return <Alert message="No detailed player data found for this team." type="info" />;
+        return (
+            <div className="text-center py-10">
+                <span className="text-4xl mb-4 block">🔍</span>
+                <p className="text-xl text-gray-400">
+                    {searchQuery ? "No players found matching your search criteria." : "No detailed player data found for this team."}
+                </p>
+                {searchQuery && (
+                    <p className="text-gray-500 mt-2">Try adjusting your search terms</p>
+                )}
+            </div>
+        );
     }
 
     return (
@@ -348,6 +439,7 @@ const PlayerRosterTable = ({ teamPlayers, onPlayerClick }) => {
                                 key={index}
                                 player={player}
                                 onClick={onPlayerClick}
+                                searchQuery={searchQuery}
                             />
                         ))}
                     </tbody>
@@ -358,7 +450,7 @@ const PlayerRosterTable = ({ teamPlayers, onPlayerClick }) => {
 };
 
 // --- Player Row Component ---
-const PlayerRow = ({ player, onClick }) => {
+const PlayerRow = ({ player, onClick, searchQuery }) => {
     // Safe nation display with null/undefined checking
     const getNationality = (nation) => {
         if (!nation) return 'Unknown';
@@ -371,13 +463,36 @@ const PlayerRow = ({ player, onClick }) => {
         return nation;
     };
 
+    // Highlight search matches in player names
+    const highlightMatch = (text, query) => {
+        if (!query || !text) return text;
+        
+        const lowerText = text.toLowerCase();
+        const lowerQuery = query.toLowerCase();
+        const index = lowerText.indexOf(lowerQuery);
+        
+        if (index === -1) return text;
+        
+        const before = text.substring(0, index);
+        const match = text.substring(index, index + query.length);
+        const after = text.substring(index + query.length);
+        
+        return (
+            <>
+                {before}
+                <mark className="bg-yellow-500/30 text-yellow-200 px-1 rounded">{match}</mark>
+                {after}
+            </>
+        );
+    };
+
     return (
         <tr 
             className="hover:bg-gray-700/50 cursor-pointer transition duration-150 group"
             onClick={() => onClick(player)}
         >
             <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-purple-400 group-hover:text-pink-300">
-                {player.name || 'Unknown Player'}
+                {searchQuery ? highlightMatch(player.name || 'Unknown Player', searchQuery) : (player.name || 'Unknown Player')}
             </td>
             <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
                 {player.pos || 'Unknown'}
